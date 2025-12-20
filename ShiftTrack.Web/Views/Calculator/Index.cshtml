@@ -1,0 +1,37 @@
+@model List<ShiftTrack.Web.Models.CalculatedShiftResult>
+
+    @{
+    ViewData["Title"] = "Mesai Hesaplayýcý";
+    }
+
+    <h3>Mesai Hesaplayýcý</h3>
+
+    <p class="text-muted">
+        Mesai tanýmlarýna göre; mola süresi düþülerek çalýþma süresi ve mesai bitiþinden sonrasý fazla mesai olarak hesaplanýr.
+    </p>
+
+    <table class="table table-bordered table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Personel</th>
+                <th>Mesai Tarihi</th>
+                <th>Giriþ Zamaný</th>
+                <th>Çýkýþ Zamaný</th>
+                <th>Çalýþma Süresi</th>
+                <th>Fazla Mesai</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in Model)
+        {
+            <tr>
+                <td>@r.PersonnelName</td>
+                <td>@r.ShiftDate.ToString("dd.MM.yyyy")</td>
+                <td>@r.EntryTime.ToString("dd.MM.yyyy HH:mm")</td>
+                <td>@r.ExitTime.ToString("dd.MM.yyyy HH:mm")</td>
+                <td>@r.WorkDuration.ToString(@"hh\:mm")</td>
+                <td>@r.OvertimeDuration.ToString(@"hh\:mm")</td>
+            </tr>
+        }
+        </tbody>
+    </table>

@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: shifttrack-mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "berke123"
+    ports:
+      - "1433:1433"
+    volumes:
+      - shifttrack_mssql_data:/var/opt/mssql
+    restart: unless-stopped
+
+volumes:
+  shifttrack_mssql_data:
