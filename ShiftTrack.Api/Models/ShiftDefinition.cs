@@ -1,14 +1,26 @@
-namespace ShiftTrack.Api.Models;
+using System.ComponentModel.DataAnnotations;
 
-public class ShiftDefinition
+namespace ShiftTrack.Api.Models
 {
-    public int Id { get; set; }
+    public class ShiftDefinition
+    {
+        public int Id { get; set; }
 
-    public TimeOnly StartTime { get; set; }
-    public TimeOnly EndTime { get; set; }
+        // Mesai baþlangýç / bitiþ (sadece saat-dakika)
+        [Required]
+        public TimeSpan StartTime { get; set; }
 
-    public TimeOnly BreakStartTime { get; set; }
-    public TimeOnly BreakEndTime { get; set; }
+        [Required]
+        public TimeSpan EndTime { get; set; }
 
-    public bool IsOvertimeEligible { get; set; }
+        // Yemek molasý
+        [Required]
+        public TimeSpan BreakStartTime { get; set; }
+
+        [Required]
+        public TimeSpan BreakEndTime { get; set; }
+
+        // Fazla mesai hakeder/etmez
+        public bool IsOvertimeEligible { get; set; }
+    }
 }

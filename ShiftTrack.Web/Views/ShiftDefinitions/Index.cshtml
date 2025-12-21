@@ -1,43 +1,211 @@
-@model List<ShiftTrack.Web.Models.ShiftDefinitionDto>
+@model ShiftTrack.Web.ViewModels.ShiftDefinitionsIndexViewModel
 
-    @{
+@{
     ViewData["Title"] = "Mesai Tanýmlarý";
-    }
+}
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3 class="mb-0">Mesai Tanýmlarý</h3>
-        <a class="btn btn-primary" asp-action="Create">Yeni Mesai</a>
+<div class="container mt-4">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h2 class="mb-0">Mesai Tanýmlarý</h2>
     </div>
 
-    <table class="table table-bordered table-striped align-middle">
-        <thead>
-            <tr>
-                <th>Mesai Baþlangýcý</th>
-                <th>Mesai Bitiþi</th>
-                <th>Mola Baþlangýcý</th>
-                <th>Mola Bitiþi</th>
-                <th>Fazla Mesai</th>
-                <th style="width: 180px;">Ýþlemler</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var item in Model)
-        {
-            <tr id="row-@item.Id">
-                <td>@item.StartTime.ToString("HH:mm")</td>
-                <td>@item.EndTime.ToString("HH:mm")</td>
-                <td>@item.BreakStartTime.ToString("HH:mm")</td>
-                <td>@item.BreakEndTime.ToString("HH:mm")</td>
-                <td>@(item.IsOvertimeEligible ? "Hak eder" : "Hak etmez")</td>
-                <td>
-                    <a class="btn btn-sm btn-warning" asp-action="Edit" asp-route-id="@item.Id">Düzenle</a>
-                    <button class="btn btn-sm btn-danger btn-delete" data-id="@item.Id">Sil</button>
-                </td>
-            </tr>
-        }
-        </tbody>
-    </table>
-
-    @section Scripts {
-        <script src="~/js/shiftdefinitions.js" asp-append-version="true"></script>
+    @if (TempData["Success"] != null)
+    {
+    <div class="alert alert-success">@TempData["Success"]</div>
     }
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+    <div class="alert alert-danger">
+        <div class="fw-bold mb-1">Lütfen aþaðýdaki hatalarý düzeltin:</div>
+        @Html.ValidationSummary()
+    </div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <span id="formTitle">Yeni Mesai Tanýmý</span>
+        </div>
+        <div class="card-body">
+            <form asp-action="Save" method="post" id="shiftForm">
+                @Html.AntiForgeryToken()
+
+                <input type="hidden" asp-for="Form.Id" id="Form_Id" />
+
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Mesai Baþlangýcý (HH:mm)</label>
+                        <input class="form-control" asp-for="Form.StartTime" placeholder="08:00" id="Form_StartTime" />
+                        <span class="text-danger" asp-validation-for="Form.StartTime"></span>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Mesai Bitiþi (HH:mm)</label>
+                        <input class="form-control" asp-for="Form.EndTime" placeholder="18:00" id="Form_EndTime" />
+                        <span class="text-danger" asp-validation-for="Form.EndTime"></span>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Mola Baþlangýcý (HH:mm)</label>
+                        <input class="form-control" asp-for="Form.BreakStartTime" placeholder="12:00" id="Form_BreakStartTime" />
+                        <span class="text-danger" asp-validation-for="Form.BreakStartTime"></span>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Mola Bitiþi (HH:mm)</label>
+                        <input class="form-control" asp-for="Form.BreakEndTime" placeholder="13:00" id="Form_BreakEndTime" />
+                        <span class="text-danger" asp-validation-for="Form.BreakEndTime"></span>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input" asp-for="Form.IsOvertimeEligible" id="Form_IsOvertimeEligible" />
+                            <label class="form-check-label" for="Form_IsOvertimeEligible">
+                                Fazla mesai hakeder
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="col-md-8 d-flex justify-content-end align-items-end gap-2">
+                        <button type="submit" class="btn btn-primary" id="btnSave">Kaydet</button>
+                        <button type="button" class="btn btn-secondary" id="btnCancelEdit" style="display:none;">Ýptal</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Tanýmlý Mesailer</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-striped mb-0" id="shiftTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:70px;">Id</th>
+                            <th>Baþlangýç</th>
+                            <th>Bitiþ</th>
+                            <th>Mola</th>
+                            <th>Fazla Mesai</th>
+                            <th style="width:180px;" class="text-end">Ýþlem</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model.Items != null && Model.Items.Any())
+                        {
+                            foreach (var item in Model.Items)
+                            {
+                        <tr data-id="@item.Id"
+                            data-start="@item.StartTime"
+                            data-end="@item.EndTime"
+                            data-bstart="@item.BreakStartTime"
+                            data-bend="@item.BreakEndTime"
+                            data-ot="@item.IsOvertimeEligible">
+                            <td>@item.Id</td>
+                            <td>@item.StartTime</td>
+                            <td>@item.EndTime</td>
+                            <td>@item.BreakStartTime - @item.BreakEndTime</td>
+                            <td>@(item.IsOvertimeEligible ? "Evet" : "Hayýr")</td>
+                            <td class="text-end">
+                                <button type="button" class="btn btn-sm btn-outline-primary btn-edit">Düzenle</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-delete">Sil</button>
+                            </td>
+                        </tr>
+                            }
+                        }
+                        else
+                        {
+                        <tr>
+                            <td colspan="6" class="text-center py-4">Henüz mesai tanýmý yok.</td>
+                        </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        (function () {
+            function resetForm() {
+                $("#Form_Id").val("");
+                $("#Form_StartTime").val("");
+                $("#Form_EndTime").val("");
+                $("#Form_BreakStartTime").val("");
+                $("#Form_BreakEndTime").val("");
+                $("#Form_IsOvertimeEligible").prop("checked", false);
+
+                $("#formTitle").text("Yeni Mesai Tanýmý");
+                $("#btnSave").text("Kaydet");
+                $("#btnCancelEdit").hide();
+            }
+
+            function setEditMode(row) {
+                $("#Form_Id").val(row.data("id"));
+                $("#Form_StartTime").val(row.data("start"));
+                $("#Form_EndTime").val(row.data("end"));
+                $("#Form_BreakStartTime").val(row.data("bstart"));
+                $("#Form_BreakEndTime").val(row.data("bend"));
+                $("#Form_IsOvertimeEligible").prop("checked", String(row.data("ot")).toLowerCase() === "true");
+
+                $("#formTitle").text("Mesai Düzenle (Id: " + row.data("id") + ")");
+                $("#btnSave").text("Güncelle");
+                $("#btnCancelEdit").show();
+                window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+
+            // Anti-forgery token (AJAX için)
+            function getAntiForgeryToken() {
+                return $('input[name="__RequestVerificationToken"]').val();
+            }
+
+            $(document).on("click", ".btn-edit", function () {
+                var row = $(this).closest("tr");
+                setEditMode(row);
+            });
+
+            $("#btnCancelEdit").on("click", function () {
+                resetForm();
+            });
+
+            $(document).on("click", ".btn-delete", function () {
+                var row = $(this).closest("tr");
+                var id = row.data("id");
+
+                if (!confirm("Bu mesai tanýmýný silmek istediðinize emin misiniz?")) {
+                    return;
+                }
+
+                $.ajax({
+                    url: "@Url.Action("Delete", "ShiftDefinitions")",
+                    type: "POST",
+                    data: { id: id },
+                    headers: {
+                        "RequestVerificationToken": getAntiForgeryToken()
+                    },
+                    success: function (res) {
+                        if (res && res.success) {
+                            row.remove();
+                            // Form edit moddaysa resetle
+                            if ($("#Form_Id").val() == id) {
+                                resetForm();
+                            }
+                        } else {
+                            alert((res && res.message) ? res.message : "Silme iþlemi baþarýsýz.");
+                        }
+                    },
+                    error: function () {
+                        alert("Silme iþlemi sýrasýnda hata oluþtu.");
+                    }
+                });
+            });
+
+        })();
+    </script>
+}

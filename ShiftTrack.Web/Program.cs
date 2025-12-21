@@ -4,10 +4,14 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllersWithViews();
 
+// API client (HttpClientFactory)
 builder.Services.AddHttpClient<ShiftTrackApiClient>(client =>
 {
-    var baseUrl = builder.Configuration["ApiSettings:BaseUrl"];
-    client.BaseAddress = new Uri(baseUrl!);
+    var baseUrl = builder.Configuration["Api:BaseUrl"];
+    if (string.IsNullOrWhiteSpace(baseUrl))
+        throw new InvalidOperationException("Api:BaseUrl is not configured.");
+
+    client.BaseAddress = new Uri(baseUrl);
 });
 
 var app = builder.Build();
@@ -22,6 +26,8 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseRouting();
+
+app.UseAuthorization();
 
 app.MapControllerRoute(
     name: "default",

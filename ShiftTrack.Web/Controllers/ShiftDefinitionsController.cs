@@ -1,62 +1,78 @@
 using Microsoft.AspNetCore.Mvc;
-using ShiftTrack.Web.Models;
 using ShiftTrack.Web.Services;
+using ShiftTrack.Web.ViewModels;
 
-namespace ShiftTrack.Web.Controllers;
-
-public class ShiftDefinitionsController : Controller
+namespace ShiftTrack.Web.Controllers
 {
-    private readonly ShiftTrackApiClient _api;
-
-    public ShiftDefinitionsController(ShiftTrackApiClient api)
+    public class ShiftDefinitionsController : Controller
     {
-        _api = api;
-    }
+        private readonly ShiftTrackApiClient _api;
 
-    public async Task<IActionResult> Index()
-    {
-        var items = await _api.GetAllAsync();
-        return View(items);
-    }
+        public ShiftDefinitionsController(ShiftTrackApiClient api)
+        {
+            _api = api;
+        }
 
-    [HttpGet]
-    public IActionResult Create()
-    {
-        return View(new ShiftDefinitionDto());
-    }
+        [HttpGet]
+        public async Task<IActionResult> Index()
+        {
+            var vm = new ShiftDefinitionsIndexViewModel
+            {
+                Items = await _api.GetShiftDefinitionsAsync(),
+                Form = new ShiftDefinitionFormViewModel()
+            };
 
-    [HttpPost]
-    public async Task<IActionResult> Create(ShiftDefinitionDto model)
-    {
-        if (!ModelState.IsValid) return View(model);
+            return View(vm);
+        }
 
-        await _api.CreateAsync(model);
-        return RedirectToAction(nameof(Index));
-    }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Save(ShiftDefinitionsIndexViewModel vm)
+        {
+            if (!ModelState.IsValid)
+            {
+                vm.Items = await _api.GetShiftDefinitionsAsync();
+                return View("Index", vm);
+            }
 
-    [HttpGet]
-    public async Task<IActionResult> Edit(int id)
-    {
-        var item = await _api.GetByIdAsync(id);
-        if (item is null) return NotFound();
+            try
+            {
+                if (vm.Form.Id.HasValue && vm.Form.Id.Value > 0)
+                {
+                    await _api.UpdateShiftDefinitionAsync(vm.Form.Id.Value, vm.Form);
+                    TempData["Success"] = "Mesai güncellendi.";
+                }
+                else
+                {
+                    await _api.CreateShiftDefinitionAsync(vm.Form);
+                    TempData["Success"] = "Mesai eklendi.";
+                }
 
-        return View(item);
-    }
+                return RedirectToAction(nameof(Index));
+            }
+            catch (Exception ex)
+            {
+                
+                ModelState.AddModelError(string.Empty, "Ýþlem sýrasýnda hata oluþtu. API baðlantýsýný ve Docker'ýn açýk olduðunu kontrol edin.");
+                vm.Items = await _api.GetShiftDefinitionsAsync();
+                return View("Index", vm);
+            }
+        }
 
-    [HttpPost]
-    public async Task<IActionResult> Edit(int id, ShiftDefinitionDto model)
-    {
-        if (!ModelState.IsValid) return View(model);
-
-        await _api.UpdateAsync(id, model);
-        return RedirectToAction(nameof(Index));
-    }
-
-    // AJAX delete endpoint
-    [HttpPost]
-    public async Task<IActionResult> Delete(int id)
-    {
-        await _api.DeleteAsync(id);
-        return Ok(new { success = true });
+        
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id)
+        {
+            try
+            {
+                await _api.DeleteShiftDefinitionAsync(id);
+                return Json(new { success = true });
+            }
+            catch
+            {
+                return Json(new { success = false, message = "Silme iþlemi baþarýsýz oldu. API/Docker kontrol edin." });
+            }
+        }
     }
 }

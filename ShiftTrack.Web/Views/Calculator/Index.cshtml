@@ -1,37 +1,144 @@
-@model List<ShiftTrack.Web.Models.CalculatedShiftResult>
+@model ShiftTrack.Web.ViewModels.CalculatorIndexViewModel
 
-    @{
+@{
     ViewData["Title"] = "Mesai Hesaplayýcý";
+
+    // MVC binder bazen null getirebilir; view patlamasýn diye güvene alýyoruz
+    Model.Passes ??= new List<ShiftTrack.Web.ViewModels.EmployeePassViewModel>();
+    Model.Results ??= new List<ShiftTrack.Web.ViewModels.WorkResultRowViewModel>();
+}
+
+<div class="container mt-4">
+    <h2 class="mb-3">Mesai Hesaplayýcý</h2>
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
     }
 
-    <h3>Mesai Hesaplayýcý</h3>
+    <div class="card mb-4">
+        <div class="card-header">Personel Giriþ / Çýkýþ Verileri</div>
+        <div class="card-body">
+            <p class="text-muted mb-3">
+                Format: <strong>dd.MM.yyyy HH:mm</strong>
+            </p>
 
-    <p class="text-muted">
-        Mesai tanýmlarýna göre; mola süresi düþülerek çalýþma süresi ve mesai bitiþinden sonrasý fazla mesai olarak hesaplanýr.
-    </p>
+            <!-- TEK FORM: state kaybolmasýn -->
+            <form method="post">
+                @Html.AntiForgeryToken()
 
-    <table class="table table-bordered table-striped align-middle">
-        <thead>
-            <tr>
-                <th>Personel</th>
-                <th>Mesai Tarihi</th>
-                <th>Giriþ Zamaný</th>
-                <th>Çýkýþ Zamaný</th>
-                <th>Çalýþma Süresi</th>
-                <th>Fazla Mesai</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var r in Model)
-        {
-            <tr>
-                <td>@r.PersonnelName</td>
-                <td>@r.ShiftDate.ToString("dd.MM.yyyy")</td>
-                <td>@r.EntryTime.ToString("dd.MM.yyyy HH:mm")</td>
-                <td>@r.ExitTime.ToString("dd.MM.yyyy HH:mm")</td>
-                <td>@r.WorkDuration.ToString(@"hh\:mm")</td>
-                <td>@r.OvertimeDuration.ToString(@"hh\:mm")</td>
-            </tr>
-        }
-        </tbody>
-    </table>
+                <div class="d-flex gap-2 mb-3">
+                    <button type="submit"
+                            class="btn btn-outline-primary"
+                            formaction="/Calculator/AddRow">
+                        Satýr Ekle
+                    </button>
+
+                    <button type="submit"
+                            class="btn btn-primary"
+                            formaction="/Calculator/Calculate">
+                        Hesapla
+                    </button>
+                </div>
+
+                @if (Model.Passes.Count == 0)
+                {
+                <div class="alert alert-warning mb-0">
+                    Henüz satýr yok. <strong>Satýr Ekle</strong> ile giriþ/çýkýþ ekleyebilirsin.
+                </div>
+                }
+                else
+                {
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 280px;">Personel</th>
+                                <th style="width: 140px;">Tür</th>
+                                <th style="width: 240px;">Tarih / Saat</th>
+                                <th style="width: 110px;">Ýþlem</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < Model.Passes.Count; i++)
+                                {
+                            <tr>
+                                <td>
+                                    <input class="form-control"
+                                           name="Passes[@i].EmployeeName"
+                                           value="@Model.Passes[i].EmployeeName" />
+                                </td>
+                                <td>
+                                    <select class="form-select" name="Passes[@i].Type">
+                                        <option value="Giriþ" selected="@(Model.Passes[i].Type == "Giriþ")">Giriþ</option>
+                                        <option value="Çýkýþ" selected="@(Model.Passes[i].Type == "Çýkýþ")">Çýkýþ</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input class="form-control"
+                                           name="Passes[@i].DateTimeText"
+                                           value="@Model.Passes[i].DateTimeText" />
+                                </td>
+                                <td>
+                                    <button type="submit"
+                                            class="btn btn-outline-danger btn-sm"
+                                            formaction="/Calculator/RemoveRow?index=@i">
+                                        Sil
+                                    </button>
+                                </td>
+                            </tr>
+                                }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-2 text-muted">
+                    Not: Boþ býrakýlan satýrlar hesaplamaya dahil edilmez.
+                </div>
+                }
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Hesaplama Sonucu</div>
+        <div class="card-body p-0">
+            <table class="table table-striped mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Personel</th>
+                        <th>Mesai Tarihi</th>
+                        <th>Giriþ</th>
+                        <th>Çýkýþ</th>
+                        <th>Çalýþma Süresi</th>
+                        <th>Fazla Mesai</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Model.Results.Any())
+                    {
+                        foreach (var r in Model.Results)
+                        {
+                    <tr>
+                        <td>@r.EmployeeName</td>
+                        <td>@r.WorkDate</td>
+                        <td>@r.EntryTime</td>
+                        <td>@r.ExitTime</td>
+                        <td>@r.WorkDuration</td>
+                        <td>@r.OvertimeDuration</td>
+                    </tr>
+                        }
+                    }
+                    else
+                    {
+                    <tr>
+                        <td colspan="6" class="text-center py-3">
+                            Henüz hesaplama yapýlmadý.
+                        </td>
+                    </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

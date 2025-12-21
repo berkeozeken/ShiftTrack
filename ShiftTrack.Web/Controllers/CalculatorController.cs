@@ -1,43 +1,94 @@
-using Microsoft.AspNetCore.Mvc;
-using ShiftTrack.Web.Models;
+ï»¿using Microsoft.AspNetCore.Mvc;
 using ShiftTrack.Web.Services;
+using ShiftTrack.Web.ViewModels;
 
-namespace ShiftTrack.Web.Controllers;
-
-public class CalculatorController : Controller
+namespace ShiftTrack.Web.Controllers
 {
-	private readonly ShiftTrackApiClient _api;
-	private readonly ShiftCalculator _calculator;
+    public class CalculatorController : Controller
+    {
+        private readonly ShiftTrackApiClient _api;
+        private readonly WorkCalculator _calculator;
 
-	public CalculatorController(ShiftTrackApiClient api)
-	{
-		_api = api;
-		_calculator = new ShiftCalculator();
-	}
+        public CalculatorController(ShiftTrackApiClient api)
+        {
+            _api = api;
+            _calculator = new WorkCalculator();
+        }
 
-	public async Task<IActionResult> Index()
-	{
-		var shifts = await _api.GetAllAsync();
+        [HttpGet]
+        public IActionResult Index()
+        {
+            var vm = new CalculatorIndexViewModel
+            {
+                Passes = new List<EmployeePassViewModel>(),
+                Results = new List<WorkResultRowViewModel>(),
+                ErrorMessage = null
+            };
 
-		// Dokümandaki örnek geçiþler (Satýlmýþ Dizman)
-		var logs = new List<PersonnelPassLog>
-		{
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,1,7,50,0), IsEntry = true },
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,1,17,25,0), IsEntry = false },
+            return View(vm);
+        }
 
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,1,23,59,0), IsEntry = true },
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,2,8,1,0), IsEntry = false },
+        // SatÄ±r ekleme: mevcut Passes gelir, Ã¼stÃ¼ne 1 boÅŸ satÄ±r ekler
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult AddRow(CalculatorIndexViewModel vm)
+        {
+            vm.Passes ??= new List<EmployeePassViewModel>();
+            vm.Results ??= new List<WorkResultRowViewModel>();
 
-            // Dokümanda tekrar eden çýkýþ satýrý var; algoritma giriþ-çýkýþ eþleþtirmede ilk çýkýþý kullanýr.
-            new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,2,8,15,0), IsEntry = false },
+            vm.Passes.Add(new EmployeePassViewModel
+            {
+                EmployeeName = "",
+                Type = "GiriÅŸ",
+                DateTimeText = ""
+            });
 
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,3,15,45,0), IsEntry = true },
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,4,16,5,0), IsEntry = true },
-			new PersonnelPassLog { PersonnelName = "Satýlmýþ Dizman", PassTime = new DateTime(2024,10,5,1,15,0), IsEntry = false },
-		};
+            return View("Index", vm);
+        }
 
-		var results = _calculator.Calculate(logs, shifts);
+        // SatÄ±r silme: index'e gÃ¶re kaldÄ±rÄ±r
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult RemoveRow(CalculatorIndexViewModel vm, int index)
+        {
+            vm.Passes ??= new List<EmployeePassViewModel>();
+            vm.Results ??= new List<WorkResultRowViewModel>();
 
-		return View(results);
-	}
+            if (index >= 0 && index < vm.Passes.Count)
+                vm.Passes.RemoveAt(index);
+
+            return View("Index", vm);
+        }
+
+        // Hesaplama: boÅŸ satÄ±rlarÄ± temizler, API'den shiftleri Ã§eker, hesaplar
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Calculate(CalculatorIndexViewModel vm)
+        {
+            try
+            {
+                vm.Passes ??= new List<EmployeePassViewModel>();
+
+                // BoÅŸ satÄ±rlarÄ± dahil etme (task'a uygun, UI rahat)
+                vm.Passes = vm.Passes
+                    .Where(p =>
+                        !string.IsNullOrWhiteSpace(p.EmployeeName) &&
+                        !string.IsNullOrWhiteSpace(p.Type) &&
+                        !string.IsNullOrWhiteSpace(p.DateTimeText))
+                    .ToList();
+
+                var shifts = await _api.GetShiftDefinitionsAsync();
+                vm.Results = _calculator.Calculate(vm.Passes, shifts);
+
+                vm.ErrorMessage = null;
+                return View("Index", vm);
+            }
+            catch (Exception ex)
+            {
+                vm.Results = new List<WorkResultRowViewModel>();
+                vm.ErrorMessage = ex.Message;
+                return View("Index", vm);
+            }
+        }
+    }
 }
