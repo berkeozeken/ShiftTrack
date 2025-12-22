@@ -5,228 +5,236 @@ namespace ShiftTrack.Web.Services
 {
     public class WorkCalculator
     {
-        // Task formatý: "01.10.2024 07:50"
-        private static readonly string[] AllowedFormats = new[] { "dd.MM.yyyy HH:mm" };
-        private static readonly CultureInfo TrCulture = new CultureInfo("tr-TR");
-
-        // Erken gelme toleransý (dk)
-        private const int EntryToleranceMinutes = 30;
+        // Task kuralý: Erken gelmek fazla mesai deðildir. Fazla mesai, seçilen mesainin bitiþinden sonra baþlar.
+        private static readonly TimeSpan ShiftStartTolerance = TimeSpan.FromMinutes(30);
 
         public List<WorkResultRowViewModel> Calculate(
             List<EmployeePassViewModel> passes,
-            List<ShiftDefinitionViewModel> shiftDefinitions)
+            List<ShiftDefinitionViewModel> shifts)
         {
-            // 1) Parse + normalize
-            var parsed = passes
-                .Select(p => new
-                {
-                    p.EmployeeName,
-                    Type = p.Type.Trim(),
-                    Time = ParseDateTime(p.DateTimeText)
-                })
-                .OrderBy(x => x.EmployeeName)
-                .ThenBy(x => x.Time)
-                .ToList();
-
-            // 2) Employee bazlý iþlem
             var results = new List<WorkResultRowViewModel>();
 
-            var byEmployee = parsed.GroupBy(x => x.EmployeeName);
+            if (passes == null || passes.Count == 0)
+                return results;
 
-            foreach (var empGroup in byEmployee)
+            if (shifts == null || shifts.Count == 0)
+                throw new InvalidOperationException("Mesai tanýmý bulunamadý. Lütfen önce Mesai Tanýmlarý ekranýndan taným ekleyin.");
+
+            // Parse + normalize
+            var parsedPasses = new List<ParsedPass>();
+            foreach (var p in passes)
             {
-                var empName = empGroup.Key;
-                var events = empGroup.ToList();
+                if (string.IsNullOrWhiteSpace(p.EmployeeName) ||
+                    string.IsNullOrWhiteSpace(p.Type) ||
+                    string.IsNullOrWhiteSpace(p.DateTimeText))
+                    continue;
 
-                // 3) Giriþ-çýkýþ çiftleme (sýrayla)
+                if (!TryParsePassDateTime(p.DateTimeText, out var dt))
+                    throw new InvalidOperationException($"Tarih/Saat formatý hatalý: '{p.DateTimeText}'. Beklenen format: dd.MM.yyyy HH:mm");
+
+                var type = p.Type.Trim();
+                if (!IsEntry(type) && !IsExit(type))
+                    throw new InvalidOperationException($"Tür alaný 'Giriþ' veya 'Çýkýþ' olmalýdýr. Gelen: '{p.Type}'");
+
+                parsedPasses.Add(new ParsedPass
+                {
+                    EmployeeName = p.EmployeeName.Trim(),
+                    Type = type,
+                    Time = dt
+                });
+            }
+
+            // Personel bazlý hesap
+            foreach (var group in parsedPasses
+                         .OrderBy(x => x.EmployeeName)
+                         .GroupBy(x => x.EmployeeName))
+            {
+                var ordered = group.OrderBy(x => x.Time).ToList();
+
                 DateTime? openEntry = null;
 
-                foreach (var e in events)
+                foreach (var pass in ordered)
                 {
-                    var isEntry = e.Type.Equals("Giriþ", StringComparison.OrdinalIgnoreCase);
-                    var isExit = e.Type.Equals("Çýkýþ", StringComparison.OrdinalIgnoreCase);
-
-                    if (isEntry)
+                    if (IsEntry(pass.Type))
                     {
-                        // Zaten açýk giriþ varsa, en erkeni koru (basit, task dýþýna taþmadan)
-                        if (openEntry == null)
-                            openEntry = e.Time;
+                        // Birden fazla giriþ gelirse: son giriþe güncelle (turnike/yanlýþ basma senaryosu)
+                        openEntry = pass.Time;
+                        continue;
                     }
-                    else if (isExit)
+
+                    // Çýkýþ
+                    if (openEntry == null)
+                        continue; // giriþ yoksa çýkýþý yok say
+
+                    var entryTime = openEntry.Value;
+                    var exitTime = pass.Time;
+
+                    // Çýkýþ giriþten önceyse: bu çifti yok say (format veya veri hatasý)
+                    if (exitTime <= entryTime)
                     {
-                        if (openEntry == null)
-                        {
-                            // Giriþ olmadan çýkýþ: görmezden gel
-                            continue;
-                        }
-
-                        var entry = openEntry.Value;
-                        var exit = e.Time;
-
-                        // Çýkýþ giriþten önceyse anlamsýz, görmezden gel
-                        if (exit <= entry)
-                        {
-                            openEntry = null;
-                            continue;
-                        }
-
-                        // 4) Hangi mesaiye denk geldi? (tolerance + pencere bazlý seçim)
-                        var shift = FindBestShift(entry, shiftDefinitions);
-
-                        // 5) Süre hesaplarý
-                        var (work, overtime) = CalculateDurations(entry, exit, shift);
-
-                        results.Add(new WorkResultRowViewModel
-                        {
-                            EmployeeName = empName,
-                            WorkDate = entry.ToString("dd.MM.yyyy"),
-                            EntryTime = entry.ToString("dd.MM.yyyy HH:mm"),
-                            ExitTime = exit.ToString("dd.MM.yyyy HH:mm"),
-                            WorkDuration = ToHm(work),
-                            OvertimeDuration = ToHm(overtime)
-                        });
-
                         openEntry = null;
+                        continue;
                     }
+
+                    var selectedShift = SelectShift(entryTime, shifts);
+                    var shiftStart = BuildShiftDateTime(entryTime.Date, selectedShift.StartTime);
+                    var shiftEnd = BuildShiftDateTime(entryTime.Date, selectedShift.EndTime);
+
+                    // Gece vardiyasý normalizasyonu
+                    if (shiftEnd <= shiftStart)
+                        shiftEnd = shiftEnd.AddDays(1);
+
+                    // Mola aralýðý (mesaiye göre)
+                    var breakStart = BuildShiftDateTime(shiftStart.Date, selectedShift.BreakStartTime);
+                    var breakEnd = BuildShiftDateTime(shiftStart.Date, selectedShift.BreakEndTime);
+
+                    if (breakEnd <= breakStart)
+                        breakEnd = breakEnd.AddDays(1);
+
+                    // Çalýþma süresi = (çýkýþ-giriþ) - (mola ile kesiþen süre)
+                    var total = exitTime - entryTime;
+                    var breakOverlap = GetOverlap(entryTime, exitTime, breakStart, breakEnd);
+                    var netWork = total - breakOverlap;
+                    if (netWork < TimeSpan.Zero)
+                        netWork = TimeSpan.Zero;
+
+                    // Fazla mesai = max(0, çýkýþ - mesai bitiþi) (erken giriþ asla overtime deðildir)
+                    TimeSpan overtime = TimeSpan.Zero;
+                    if (selectedShift.IsOvertimeEligible && exitTime > shiftEnd)
+                        overtime = exitTime - shiftEnd;
+
+                    results.Add(new WorkResultRowViewModel
+                    {
+                        EmployeeName = group.Key,
+                        WorkDate = entryTime.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture),
+                        EntryTime = entryTime.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture),
+                        ExitTime = exitTime.ToString("dd.MM.yyyy HH:mm", CultureInfo.InvariantCulture),
+                        WorkDuration = FormatHm(netWork),
+                        OvertimeDuration = FormatHm(overtime)
+                    });
+
+                    openEntry = null;
                 }
             }
 
             return results;
         }
 
-        private static DateTime ParseDateTime(string text)
+        /// <summary>
+        /// NET KURAL (uygulanan):
+        /// - entryTime için aday mesailer: (Start - 30dk) <= entryTime < End (gece vardiyasý normalize edilir)
+        /// - aday varsa: |entry - Start| en küçük olan seçilir; eþitlikte daha erken baþlayan seçilir
+        /// - aday yoksa: tüm mesailer içinde |entry - Start| en küçük olan seçilir; eþitlikte daha erken baþlayan
+        /// </summary>
+        private static ShiftDefinitionViewModel SelectShift(DateTime entryTime, List<ShiftDefinitionViewModel> shifts)
         {
-            if (!DateTime.TryParseExact(text.Trim(), AllowedFormats, TrCulture, DateTimeStyles.None, out var dt))
-                throw new FormatException($"Tarih formatý geçersiz: {text}. Beklenen format: dd.MM.yyyy HH:mm");
-
-            return dt;
-        }
-
-        // Yeni seçim mantýðý:
-        // 1) Entry, (ShiftStart - tolerance) ile ShiftEnd arasýnda olan mesailer aday.
-        // 2) Aday varsa: ShiftStart'a en yakýn olaný seç.
-        // 3) Aday yoksa: fallback olarak yine ShiftStart'a en yakýn olaný seç.
-        private static ShiftDefinitionViewModel? FindBestShift(DateTime entry, List<ShiftDefinitionViewModel> shifts)
-        {
-            if (shifts == null || shifts.Count == 0) return null;
-
-            var candidates = new List<(ShiftDefinitionViewModel Shift, DateTime Start, DateTime End)>();
-            var all = new List<(ShiftDefinitionViewModel Shift, DateTime Start, DateTime End)>();
+            var candidates = new List<(ShiftDefinitionViewModel shift, DateTime startDt, DateTime endDt, TimeSpan score)>();
 
             foreach (var s in shifts)
             {
-                if (!TimeSpan.TryParseExact(s.StartTime, @"hh\:mm", CultureInfo.InvariantCulture, out var startTs))
-                    continue;
-                if (!TimeSpan.TryParseExact(s.EndTime, @"hh\:mm", CultureInfo.InvariantCulture, out var endTs))
-                    continue;
+                var startDt = BuildShiftDateTime(entryTime.Date, s.StartTime);
+                var endDt = BuildShiftDateTime(entryTime.Date, s.EndTime);
 
-                var shiftStart = entry.Date + startTs;
-                var shiftEnd = entry.Date + endTs;
+                if (endDt <= startDt)
+                    endDt = endDt.AddDays(1);
 
-                // Gece vardiyasý (end < start) => ertesi güne taþýr
-                if (endTs < startTs)
-                    shiftEnd = shiftEnd.AddDays(1);
+                var windowStart = startDt - ShiftStartTolerance;
 
-                all.Add((s, shiftStart, shiftEnd));
-
-                var windowStart = shiftStart.AddMinutes(-EntryToleranceMinutes);
-                var windowEnd = shiftEnd;
-
-                if (entry >= windowStart && entry <= windowEnd)
+                if (entryTime >= windowStart && entryTime < endDt)
                 {
-                    candidates.Add((s, shiftStart, shiftEnd));
+                    var score = (entryTime - startDt).Duration();
+                    candidates.Add((s, startDt, endDt, score));
                 }
             }
 
-            // Aday varsa adaylar arasýndan seç
             if (candidates.Count > 0)
             {
                 return candidates
-                    .OrderBy(x => Math.Abs((entry - x.Start).TotalMinutes))
+                    .OrderBy(x => x.score)
+                    .ThenBy(x => x.startDt) // tie-break: daha erken baþlayan
                     .First()
-                    .Shift;
+                    .shift;
             }
 
-            // Aday yoksa: fallback (en yakýn baþlangýç)
-            if (all.Count > 0)
-            {
-                return all
-                    .OrderBy(x => Math.Abs((entry - x.Start).TotalMinutes))
-                    .First()
-                    .Shift;
-            }
+            // fallback: hiç aday yoksa en yakýn baþlangýca göre seç
+            var all = shifts
+                .Select(s =>
+                {
+                    var startDt = BuildShiftDateTime(entryTime.Date, s.StartTime);
+                    return (shift: s, startDt, score: (entryTime - startDt).Duration());
+                })
+                .OrderBy(x => x.score)
+                .ThenBy(x => x.startDt)
+                .First();
 
-            return null;
+            return all.shift;
         }
 
-        private static (TimeSpan Work, TimeSpan Overtime) CalculateDurations(DateTime entry, DateTime exit, ShiftDefinitionViewModel? shift)
+        private static TimeSpan GetOverlap(DateTime aStart, DateTime aEnd, DateTime bStart, DateTime bEnd)
         {
-            var total = exit - entry;
+            var start = aStart > bStart ? aStart : bStart;
+            var end = aEnd < bEnd ? aEnd : bEnd;
 
-            // Shift yoksa mola düþmeden total work yazalým (taným yoksa hesaplayamayýz)
-            if (shift == null)
-                return (total, TimeSpan.Zero);
+            if (end <= start)
+                return TimeSpan.Zero;
 
-            // Shift times
-            var start = ParseHm(shift.StartTime);
-            var end = ParseHm(shift.EndTime);
-            var breakStart = ParseHm(shift.BreakStartTime);
-            var breakEnd = ParseHm(shift.BreakEndTime);
-
-            // Mesai baþlangýcý/bitiþi entry date üzerinden oluþturulur
-            var shiftStartDt = entry.Date + start;
-            var shiftEndDt = entry.Date + end;
-
-            // Gece vardiyasý (end < start) => ertesi güne taþýr
-            if (end < start)
-                shiftEndDt = shiftEndDt.AddDays(1);
-
-            // Mola zamaný
-            var breakStartDt = entry.Date + breakStart;
-            var breakEndDt = entry.Date + breakEnd;
-            if (breakEnd < breakStart)
-                breakEndDt = breakEndDt.AddDays(1);
-
-            // 1) Fazla mesai: sadece mesai bitiþinden sonrasý
-            TimeSpan overtime = TimeSpan.Zero;
-            if (exit > shiftEndDt && shift.IsOvertimeEligible)
-            {
-                overtime = exit - shiftEndDt;
-            }
-
-            // 2) Çalýþma süresi: (exit-entry) - (mola overlap)
-            var work = total - CalculateOverlap(entry, exit, breakStartDt, breakEndDt);
-            if (work < TimeSpan.Zero) work = TimeSpan.Zero;
-
-            return (work, overtime);
-        }
-
-        private static TimeSpan CalculateOverlap(DateTime rangeStart, DateTime rangeEnd, DateTime blockStart, DateTime blockEnd)
-        {
-            var start = rangeStart > blockStart ? rangeStart : blockStart;
-            var end = rangeEnd < blockEnd ? rangeEnd : blockEnd;
-
-            if (end <= start) return TimeSpan.Zero;
             return end - start;
         }
 
-        private static TimeSpan ParseHm(string hm)
+        private static DateTime BuildShiftDateTime(DateTime baseDate, string timeText)
         {
-            if (!TimeSpan.TryParseExact(hm, @"hh\:mm", CultureInfo.InvariantCulture, out var ts))
-                return TimeSpan.Zero;
-            return ts;
+            var t = ParseTimeSpan(timeText);
+            return baseDate.Date.Add(t);
         }
 
-        private static string ToHm(TimeSpan ts)
+        private static TimeSpan ParseTimeSpan(string hhmm)
         {
-            // 08:35 formatý
-            var totalMinutes = (int)Math.Round(ts.TotalMinutes);
-            if (totalMinutes < 0) totalMinutes = 0;
+            if (string.IsNullOrWhiteSpace(hhmm))
+                return TimeSpan.Zero;
 
+            if (TimeSpan.TryParseExact(hhmm.Trim(), @"hh\:mm", CultureInfo.InvariantCulture, out var ts))
+                return ts;
+
+            // Bazý durumlarda "H:mm" gelebilir
+            if (TimeSpan.TryParse(hhmm.Trim(), CultureInfo.InvariantCulture, out ts))
+                return ts;
+
+            throw new InvalidOperationException($"Saat formatý hatalý: '{hhmm}'. Beklenen format: HH:mm");
+        }
+
+        private static bool TryParsePassDateTime(string text, out DateTime dt)
+        {
+            return DateTime.TryParseExact(
+                text.Trim(),
+                "dd.MM.yyyy HH:mm",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out dt);
+        }
+
+        private static bool IsEntry(string type) =>
+            type.Equals("Giriþ", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("Giris", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsExit(string type) =>
+            type.Equals("Çýkýþ", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("Cikis", StringComparison.OrdinalIgnoreCase);
+
+        private static string FormatHm(TimeSpan ts)
+        {
+            if (ts < TimeSpan.Zero) ts = TimeSpan.Zero;
+            // 24 saati aþarsa da düzgün gözüksün
+            var totalMinutes = (int)Math.Round(ts.TotalMinutes, MidpointRounding.AwayFromZero);
             var hours = totalMinutes / 60;
             var minutes = totalMinutes % 60;
-
             return $"{hours:00}:{minutes:00}";
+        }
+
+        private sealed class ParsedPass
+        {
+            public string EmployeeName { get; set; } = "";
+            public string Type { get; set; } = "";
+            public DateTime Time { get; set; }
         }
     }
 }

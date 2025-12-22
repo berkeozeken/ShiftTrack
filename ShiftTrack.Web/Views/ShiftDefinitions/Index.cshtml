@@ -6,8 +6,11 @@
 
 <div class="container mt-4">
 
-    <div class="d-flex align-items-center justify-content-between mb-3">
-        <h2 class="mb-0">Mesai Tanýmlarý</h2>
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between mb-3">
+        <div>
+            <h1 class="page-title mb-1">Mesai Tanýmlarý</h1>
+            <div class="page-subtitle">Mesai baþlangýç/bitiþ, mola ve fazla mesai hak ediþini tanýmlayýn.</div>
+        </div>
     </div>
 
     @if (TempData["Success"] != null)
@@ -24,8 +27,9 @@
     }
 
     <div class="card mb-4">
-        <div class="card-header">
-            <span id="formTitle">Yeni Mesai Tanýmý</span>
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span class="fw-semibold" id="formTitle">Yeni Mesai Tanýmý</span>
+            <span class="text-muted small">HH:mm formatýnda</span>
         </div>
         <div class="card-body">
             <form asp-action="Save" method="post" id="shiftForm">
@@ -35,41 +39,41 @@
 
                 <div class="row g-3">
                     <div class="col-md-3">
-                        <label class="form-label">Mesai Baþlangýcý (HH:mm)</label>
+                        <label class="form-label">Mesai Baþlangýcý</label>
                         <input class="form-control" asp-for="Form.StartTime" placeholder="08:00" id="Form_StartTime" />
                         <span class="text-danger" asp-validation-for="Form.StartTime"></span>
                     </div>
 
                     <div class="col-md-3">
-                        <label class="form-label">Mesai Bitiþi (HH:mm)</label>
+                        <label class="form-label">Mesai Bitiþi</label>
                         <input class="form-control" asp-for="Form.EndTime" placeholder="18:00" id="Form_EndTime" />
                         <span class="text-danger" asp-validation-for="Form.EndTime"></span>
                     </div>
 
                     <div class="col-md-3">
-                        <label class="form-label">Mola Baþlangýcý (HH:mm)</label>
+                        <label class="form-label">Mola Baþlangýcý</label>
                         <input class="form-control" asp-for="Form.BreakStartTime" placeholder="12:00" id="Form_BreakStartTime" />
                         <span class="text-danger" asp-validation-for="Form.BreakStartTime"></span>
                     </div>
 
                     <div class="col-md-3">
-                        <label class="form-label">Mola Bitiþi (HH:mm)</label>
+                        <label class="form-label">Mola Bitiþi</label>
                         <input class="form-control" asp-for="Form.BreakEndTime" placeholder="13:00" id="Form_BreakEndTime" />
                         <span class="text-danger" asp-validation-for="Form.BreakEndTime"></span>
                     </div>
 
                     <div class="col-md-4">
-                        <div class="form-check mt-4">
+                        <div class="form-check form-switch mt-3 mt-md-4">
                             <input class="form-check-input" asp-for="Form.IsOvertimeEligible" id="Form_IsOvertimeEligible" />
                             <label class="form-check-label" for="Form_IsOvertimeEligible">
-                                Fazla mesai hakeder
+                                Fazla mesai hak eder
                             </label>
                         </div>
                     </div>
 
                     <div class="col-md-8 d-flex justify-content-end align-items-end gap-2">
                         <button type="submit" class="btn btn-primary" id="btnSave">Kaydet</button>
-                        <button type="button" class="btn btn-secondary" id="btnCancelEdit" style="display:none;">Ýptal</button>
+                        <button type="button" class="btn btn-outline-secondary" id="btnCancelEdit" style="display:none;">Ýptal</button>
                     </div>
                 </div>
             </form>
@@ -77,10 +81,13 @@
     </div>
 
     <div class="card">
-        <div class="card-header">Tanýmlý Mesailer</div>
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span class="fw-semibold">Tanýmlý Mesailer</span>
+            <span class="text-muted small">@((Model.Items?.Count ?? 0)) kayýt</span>
+        </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-striped mb-0" id="shiftTable">
+                <table class="table table-striped table-hover mb-0" id="shiftTable">
                     <thead class="table-light">
                         <tr>
                             <th style="width:70px;">Id</th>
@@ -102,11 +109,20 @@
                             data-bstart="@item.BreakStartTime"
                             data-bend="@item.BreakEndTime"
                             data-ot="@item.IsOvertimeEligible">
-                            <td>@item.Id</td>
+                            <td class="fw-semibold">@item.Id</td>
                             <td>@item.StartTime</td>
                             <td>@item.EndTime</td>
                             <td>@item.BreakStartTime - @item.BreakEndTime</td>
-                            <td>@(item.IsOvertimeEligible ? "Evet" : "Hayýr")</td>
+                            <td>
+                                @if (item.IsOvertimeEligible)
+                                        {
+                                <span class="badge-soft badge-soft-success">Evet</span>
+                                        }
+                                        else
+                                        {
+                                <span class="badge-soft badge-soft-muted">Hayýr</span>
+                                        }
+                            </td>
                             <td class="text-end">
                                 <button type="button" class="btn btn-sm btn-outline-primary btn-edit">Düzenle</button>
                                 <button type="button" class="btn btn-sm btn-outline-danger btn-delete">Sil</button>
@@ -117,7 +133,7 @@
                         else
                         {
                         <tr>
-                            <td colspan="6" class="text-center py-4">Henüz mesai tanýmý yok.</td>
+                            <td colspan="6" class="text-center py-4 text-muted">Henüz mesai tanýmý yok.</td>
                         </tr>
                         }
                     </tbody>
@@ -192,7 +208,7 @@
                     success: function (res) {
                         if (res && res.success) {
                             row.remove();
-                            // Form edit moddaysa resetle
+                            
                             if ($("#Form_Id").val() == id) {
                                 resetForm();
                             }
