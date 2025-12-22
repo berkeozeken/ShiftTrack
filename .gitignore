@@ -19,3 +19,7 @@ Thumbs.db
 
 ## Secrets
 appsettings.Production.json
+
+
+## Dotenv
+.env
