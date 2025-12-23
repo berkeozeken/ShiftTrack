@@ -68,5 +68,6 @@ Alternatif olarak:
 Berke Özeken  
 Software Engineer  
 E-posta: berkeozeken1607@gmail.com  
-GitHub: https://github.com/berkeozeken
+GitHub: https://github.com/berkeozeken  
 Linkedin: https://www.linkedin.com/in/berke-ozeken/
+
